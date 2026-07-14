@@ -72,7 +72,7 @@ pnpm --filter @mlightcad/cad-viewer-example build:release
 这会自动将前端网页打包（并自动剪裁掉 dist 内的冗余 fonts 资源），并将 `server.js` 后端连同全部依赖，用 `esbuild` 自动编译成单一的 `server.cjs` 文件，一并输出到根目录下的 `release/` 文件夹中。
 
 ### 步骤二：首次部署（拷贝所有文件）
-将整个 `release/` 文件夹整体拷贝到内网服务器 the same directory.
+将整个 `release/` 文件夹整体拷贝到内网服务器的目标路径下。
 
 ### 步骤三：一键启动服务器 (零依赖安装)
 无需进行任何 `npm install`。直接使用 node 运行主文件即可：
@@ -91,6 +91,17 @@ pnpm --filter @mlightcad/cad-viewer-example build:release
 
 当您在开发机上修改了网页界面，或者修改了后端接收接口，需要同步到内网服务器时：
 1.  在开发机重新运行 `pnpm --filter @mlightcad/cad-viewer-example build:release`。
+    > [!IMPORTANT]
+    > **字体写保护机制**：最新的编译管道已彻底移除了将开发机字体反向覆盖到 release 的命令。这意味着不论您在开发机上如何编译升级，您存放在内网服务器 `release/public/drawings/fonts/` 目录下的全套离线字库资产都将受到 100% 绝对物理隔离和写保护，永远不会被覆盖误写！
 2.  **仅将新的 `dist/` 目录和 `server.cjs` 文件**拷贝并覆盖服务器上的旧文件。
-3.  **【重要】绝对不要覆盖或修改服务器上的 `public/` 文件夹**。
-    *   因为用户上传的所有图纸都在 `public/drawings/uploads/` 下，自动生成的带水印二维码图片都在 `public/drawings/qrcodes/` 下。这样做可以保证系统升级的同时，用户已上传的数据和生成的二维码完美保留、完好无损。
+3.  **【重要】不要删除或覆盖服务器上的 `public/` 文件夹**。
+    *   因为用户下载的全套字体都在 `public/drawings/fonts/` 下，上传的图纸在 `public/drawings/uploads/` 下，二维码在 `public/drawings/qrcodes/` 下。
+
+---
+
+## 💡 4. 本地离线字体服务配置常识
+由于底层 CAD 渲染核心在加载字体文件时，会自动在传入的 `baseUrl` 后面拼接 `/fonts/` 子级路径，例如：
+*   `${BASE_URL}fonts/fonts.json`
+*   `${BASE_URL}fonts/hztxt.shx`
+
+因此，前端 `App.vue` 里的 `BASE_URL` 已经统一设为了 `'./drawings/'`（相对于托管服务器根路径的父级目录），而不是直接设为 `'./drawings/fonts/'`。这样配置在请求时刚好对应服务器物理路径 `release/public/drawings/fonts/`，确保中文兜底字体能正确 200 加载，避免文字显示空白。

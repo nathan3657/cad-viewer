@@ -121,15 +121,39 @@ const downloadQrCode = () => {
 }
 ```
 
-#### D. 文件名解析与防缓存
-当用户把图纸渲染进 MlCadViewer 时，前端自动加上随机毫秒时间戳来打破浏览器的 Disk Cache：
+#### D. 文件名解析、防缓存与 URL 二次防截断编码
+当用户把图纸渲染进 `MlCadViewer` 时，前端自动加上随机毫秒时间戳来打破浏览器的 Disk Cache：
 ```vue
 <MlCadViewer
-  :url="store.drawingUrl ? appendTimestamp(store.drawingUrl) : undefined"
+  :url="safeDrawingUrl ? appendTimestamp(safeDrawingUrl) : undefined"
 />
 ```
+
+##### 1. 为什么需要 `safeDrawingUrl` 双重 URL 编码防御？
+*   **现象**：当用户上传含有 **`#`**、空格、`&` 等在 URL 中具有特殊语义的字符的图纸（如 `104 送水泵站5#~7#控制图.dwg`）时，如果直接用明文路径，浏览器会将 `#` 解释为 URL 的哈希片段（Fragment Identifier），在发送 HTTP 网络请求时自动将 `#` 之后的内容全部截断，导致服务器报 404！
+*   **二次解码陷阱**：前端从浏览器地址栏通过 `urlParams.get('drawing')` 接收参数时，浏览器会自动对其进行一次 URL 解码，将安全的 `%23` 变回了明文 `#`。如果不加干预直接传给底层，网络请求依然会被截断！
+*   **对策**：在 `App.vue` 中设计了 `safeDrawingUrl` 拦截层，先进行 `decode` 还原为最纯粹的中文明文，随后强制对文件名部分单独运行 `encodeURIComponent`，确保所有特殊的 `#` 在网络层都会被转义为 `%23`，在不改变磁盘上中文名可视性的前提下，彻底解决了 404 截断问题：
+
 ```typescript
-// 1. 动态附加时间戳，防止同名覆盖时加载浏览器缓存
+const safeDrawingUrl = computed(() => {
+  const url = store.drawingUrl
+  if (!url) return url
+  const uploadsIdx = url.indexOf('/drawings/uploads/')
+  if (uploadsIdx !== -1) {
+    const prefix = url.substring(0, uploadsIdx + '/drawings/uploads/'.length)
+    const filename = url.substring(uploadsIdx + '/drawings/uploads/'.length)
+    return prefix + encodeURIComponent(decodeURIComponent(filename))
+  }
+  const convertedIdx = url.indexOf('/drawings/uploads_converted/')
+  if (convertedIdx !== -1) {
+    const prefix = url.substring(0, convertedIdx + '/drawings/uploads_converted/'.length)
+    const filename = url.substring(convertedIdx + '/drawings/uploads_converted/'.length)
+    return prefix + encodeURIComponent(decodeURIComponent(filename))
+  }
+  return url
+})
+
+// 动态附加时间戳，防止同名覆盖时加载浏览器缓存
 const appendTimestamp = (url: string) => {
   try {
     const u = new URL(url, window.location.href);
@@ -139,6 +163,7 @@ const appendTimestamp = (url: string) => {
     return url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
   }
 };
+```
 
 // 2. 字符解码与文件名解析，用于展示在二维码下方
 const getFileNameFromUrl = (url: string) => {
@@ -177,17 +202,17 @@ app.use('/drawings', express.static(resolve(__dirname, './public/drawings'))); /
 
 我们在 `[package.json](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/package.json)` 中编写了极其精细的构建打包管道：
 ```json
-"build:release": "pnpm build && rimraf dist/drawings && mkdir -p ../../release/public/drawings/uploads ../../release/public/drawings/fonts && rimraf ../../release/dist && cp -r dist ../../release/dist && esbuild server.js --bundle --platform=node --target=node20 --outfile=../../release/server.cjs && cp -r public/drawings/fonts/* ../../release/public/drawings/fonts/ && cp public/drawings/*.dxf ../../release/public/drawings/"
+"build:release": "pnpm build && rimraf dist/drawings && mkdir -p ../../release/public/drawings/uploads ../../release/public/drawings/fonts ../../release/public/drawings/qrcodes && rimraf ../../release/dist && cp -r dist ../../release/dist && esbuild server.js --bundle --platform=node --target=node20 --outfile=../../release/server.cjs && (cp public/drawings/*.dxf ../../release/public/drawings/ 2>/dev/null || true)"
 ```
 
 #### 管道步骤逐条分析 (Step-by-Step)：
 1.  **`pnpm build`**：利用 Vite 编译前端代码，此时 Vite 默认会把 `public/drawings`（包括里面的 10MB+ 字体库）全量拷入 `dist/` 下。
 2.  **`rimraf dist/drawings`**：**【关键瘦身】** 立刻强行在编译目录里把整个 `drawings` 目录删除，使 `dist/` 中仅剩下纯净网页代码，**包体积直接暴瘦 10MB+**。
-3.  **`mkdir -p ../../release/public/drawings/uploads ...`**：在根目录下创建 release 数据存放区。由于使用的是 `mkdir -p`，如果服务器或本地已经存在该目录（内含用户之前上传的图纸），**它绝对不会将其删除或重写，提供了完美的写保护。**
+3.  **`mkdir -p ../../release/public/drawings/uploads ...`**：在根目录下创建 release 数据存放区。由于使用的是 `mkdir -p`，如果服务器已经存在该目录（内含用户之前上传的图纸、全套字体），**它绝对不会将其删除或重写，提供了完美的写保护。**
 4.  **`rimraf ../../release/dist && cp -r dist ../../release/dist`**：清空并只覆盖更新前端网页成品，彻底隔离数据区。
 5.  **`esbuild server.js --bundle --platform=node ...`**：调用 `esbuild` 快速把后端代码连同 express 合并混淆，打包输出单文件 `server.cjs`（1.1MB）。
-6.  **`cp -r public/drawings/fonts/* ...`**：只拷贝/更新字体，由于是增量覆盖拷贝，**绝对不会碰 `uploads/` 目录下的图纸**。
-7.  **`cp public/drawings/*.dxf ...`**：只拷贝示例图纸，避免覆盖损坏 uploads 文件夹。
+6.  **物理字体库绝对写保护**：最新的编译管道已**彻底拿掉了在构建时拷贝本地开发机字体到生产包的命令**。这样部署和更新系统代码时，**100% 对内网服务器上的物理字体资产进行了写保护**，绝不会因为日常更新而反向写坏或覆盖用户在服务器上下好的丰富字库。
+7.  **`(cp public/drawings/*.dxf ... || true)`**：非阻塞、安全地尝试拷贝示例 `.dxf` 文件，出错自动忽略，避免流程卡死。
 
 ---
 
