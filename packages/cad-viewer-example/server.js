@@ -64,7 +64,7 @@ app.post('/api/upload', (req, res) => {
     
     console.log(`🟢 [Server] Upload saved successfully: ${originalName} (${sizeStr})`)
     
-    const finalUrl = `./drawings/uploads/${originalName}`
+    const finalUrl = `./drawings/uploads/${encodeURIComponent(originalName)}`
     res.json({ url: finalUrl, originalName: originalName })
   })
 })

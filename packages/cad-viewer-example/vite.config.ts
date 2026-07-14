@@ -48,7 +48,7 @@ const uploadPlugin = {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
           })
-          res.end(JSON.stringify({ url: `./drawings/uploads/${filename}`, originalName: filename }))
+          res.end(JSON.stringify({ url: `./drawings/uploads/${encodeURIComponent(filename)}`, originalName: filename }))
         })
         return
       }
