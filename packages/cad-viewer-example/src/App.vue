@@ -13,7 +13,7 @@
       <MlCadViewer
         locale="en"
         :local-file="store.selectedFile ?? undefined"
-        :url="store.drawingUrl ? appendTimestamp(store.drawingUrl) : undefined"
+        :url="safeDrawingUrl ? appendTimestamp(safeDrawingUrl) : undefined"
         :mode="selectedMode"
         :use-main-thread-draw="useMainThreadDraw"
         :draw-no-plot-layers="drawNoPlotLayers"
@@ -124,9 +124,27 @@ const openViewMode = ref<AcApOpenViewMode | undefined>(undefined)
 const showQrDialog = ref(false)
 const qrCodeDataUrl = ref('')
 
+const safeDrawingUrl = computed(() => {
+  const url = store.drawingUrl
+  if (!url) return url
+  const uploadsIdx = url.indexOf('/drawings/uploads/')
+  if (uploadsIdx !== -1) {
+    const prefix = url.substring(0, uploadsIdx + '/drawings/uploads/'.length)
+    const filename = url.substring(uploadsIdx + '/drawings/uploads/'.length)
+    return prefix + encodeURIComponent(decodeURIComponent(filename))
+  }
+  const convertedIdx = url.indexOf('/drawings/uploads_converted/')
+  if (convertedIdx !== -1) {
+    const prefix = url.substring(0, convertedIdx + '/drawings/uploads_converted/'.length)
+    const filename = url.substring(convertedIdx + '/drawings/uploads_converted/'.length)
+    return prefix + encodeURIComponent(decodeURIComponent(filename))
+  }
+  return url
+})
+
 const shareUrl = computed(() => {
-  if (!store.drawingUrl) return ''
-  const absoluteDrawingUrl = new URL(store.drawingUrl, window.location.href).href
+  if (!safeDrawingUrl.value) return ''
+  const absoluteDrawingUrl = new URL(safeDrawingUrl.value, window.location.href).href
   const url = new URL(window.location.href)
   url.searchParams.set('drawing', decodeURIComponent(absoluteDrawingUrl))
   const displayName = store.originalFileName || (store.selectedFile?.name || '')
