@@ -18,6 +18,7 @@
 
         <div class="upload-actions">
           <button
+            v-if="!selectedRawFile"
             type="button"
             class="new-drawing-button"
             @click="handleNewDrawing"
@@ -25,17 +26,19 @@
             New Drawing
           </button>
 
-          <p class="upload-divider" aria-hidden="true">
+          <p v-if="!selectedRawFile" class="upload-divider" aria-hidden="true">
             <span>or</span>
           </p>
 
           <el-upload
+            v-if="!selectedRawFile"
             class="upload-dropzone"
             drag
             :auto-upload="false"
             accept=".dwg,.dxf"
-            :on-change="handleFileChange"
+            :on-change="onFileChange"
             :before-upload="beforeUpload"
+            :show-file-list="false"
           >
             <div class="dropzone-content">
               <p class="dropzone-title">
@@ -47,6 +50,33 @@
               </div>
             </div>
           </el-upload>
+
+          <!-- 选中文件后的操作面板 -->
+          <div v-else class="file-action-panel">
+            <div class="selected-file-info">
+              <span class="file-icon">📄</span>
+              <span class="file-name" :title="selectedRawFile.name">{{ selectedRawFile.name }}</span>
+              <button type="button" class="clear-file-btn" @click="selectedRawFile = null">✕</button>
+            </div>
+            
+            <div class="action-buttons">
+              <button
+                type="button"
+                class="action-btn open-btn"
+                @click="handleDirectOpen"
+              >
+                直接打开 (Open Local)
+              </button>
+              <button
+                type="button"
+                class="action-btn share-btn"
+                :disabled="isUploading"
+                @click="handleUploadAndShare"
+              >
+                {{ isUploading ? 'Uploading...' : '上传并生成二维码 (Upload & Generate QR)' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -150,7 +180,7 @@
                 title="Show geometry while loading"
                 @click="progressiveRendering = true"
               >
-                On
+                Show
               </button>
               <button
                 type="button"
@@ -158,42 +188,10 @@
                 :class="{ 'is-active': !progressiveRendering }"
                 role="radio"
                 :aria-checked="!progressiveRendering"
-                title="Wait until fully converted"
+                title="Show geometry after fully loaded"
                 @click="progressiveRendering = false"
               >
-                Off
-              </button>
-            </div>
-          </div>
-
-          <div class="setting-block">
-            <h3 class="setting-label">Non-plottable</h3>
-            <div
-              class="pill-segment"
-              role="radiogroup"
-              aria-label="Non-plottable layers"
-            >
-              <button
-                type="button"
-                class="pill-option"
-                :class="{ 'is-active': !drawNoPlotLayers }"
-                role="radio"
-                :aria-checked="!drawNoPlotLayers"
-                title="Web viewer default"
-                @click="drawNoPlotLayers = false"
-              >
                 Hide
-              </button>
-              <button
-                type="button"
-                class="pill-option"
-                :class="{ 'is-active': drawNoPlotLayers }"
-                role="radio"
-                :aria-checked="drawNoPlotLayers"
-                title="AutoCAD editor semantics"
-                @click="drawNoPlotLayers = true"
-              >
-                Show
               </button>
             </div>
           </div>
@@ -208,8 +206,9 @@ import { UploadFilled } from '@element-plus/icons-vue'
 import { AcApOpenViewMode, AcEdOpenMode } from '@mlightcad/cad-simple-viewer'
 import { log } from '@mlightcad/data-model'
 import type { UploadFile, UploadProps } from 'element-plus'
-import { ElIcon, ElUpload } from 'element-plus'
+import { ElIcon, ElUpload, ElMessage } from 'element-plus'
 import { ref } from 'vue'
+import { store } from '../store'
 
 interface Props {
   onFileSelect: (
@@ -238,6 +237,9 @@ const selectedOpenViewMode = ref<OpenViewModeChoice>('auto')
 const useMainThreadDraw = ref(false)
 const drawNoPlotLayers = ref(false)
 const progressiveRendering = ref(false)
+
+const selectedRawFile = ref<File | null>(null)
+const isUploading = ref(false)
 
 const openViewModes = [
   {
@@ -278,18 +280,66 @@ const accessModes = [
   }
 ] as const
 
-const handleFileChange: UploadProps['onChange'] = (uploadFile: UploadFile) => {
-  if (uploadFile.raw) {
-    if (isValidFile(uploadFile.raw)) {
-      props.onFileSelect(
-        uploadFile.raw,
-        selectedMode.value,
-        useMainThreadDraw.value,
-        drawNoPlotLayers.value,
-        progressiveRendering.value,
-        resolveOpenViewMode()
-      )
+const onFileChange: UploadProps['onChange'] = (uploadFile: UploadFile) => {
+  if (uploadFile.raw && isValidFile(uploadFile.raw)) {
+    selectedRawFile.value = uploadFile.raw
+  }
+}
+
+const handleDirectOpen = () => {
+  if (!selectedRawFile.value) return
+  
+  // 记录原始文件名
+  store.originalFileName = selectedRawFile.value.name
+  
+  props.onFileSelect(
+    selectedRawFile.value,
+    selectedMode.value,
+    useMainThreadDraw.value,
+    drawNoPlotLayers.value,
+    progressiveRendering.value,
+    resolveOpenViewMode()
+  )
+}
+
+const handleUploadAndShare = async () => {
+  if (!selectedRawFile.value) return
+  isUploading.value = true
+  try {
+    const file = selectedRawFile.value
+    const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsArrayBuffer(file)
+    })
+
+    const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      body: arrayBuffer,
+      headers: {
+        'Content-Type': 'application/octet-stream'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status}`)
     }
+
+    const data = await response.json()
+    if (data.url) {
+      loadDemoDrawing(data.url, data.originalName)
+    } else {
+      throw new Error('No url returned from upload API')
+    }
+  } catch (err) {
+    log.error('Failed to upload drawing:', err)
+    ElMessage({
+      message: 'Failed to upload drawing. Make sure dev server is running.',
+      type: 'error'
+    })
+  } finally {
+    isUploading.value = false
   }
 }
 
@@ -315,6 +365,19 @@ const isValidFile = (file: File): boolean => {
   const validExtensions = ['.dwg', '.dxf']
   const fileName = file.name.toLowerCase()
   return validExtensions.some(ext => fileName.endsWith(ext))
+}
+
+const loadDemoDrawing = (url: string, originalName?: string) => {
+  const currentUrl = new URL(window.location.href)
+  const absoluteUrl = new URL(url, window.location.href).href
+  currentUrl.searchParams.set('drawing', absoluteUrl)
+  if (originalName) {
+    currentUrl.searchParams.set('name', originalName)
+    try {
+      localStorage.setItem(`cad_name_${absoluteUrl}`, originalName)
+    } catch {}
+  }
+  window.location.href = currentUrl.href
 }
 </script>
 
@@ -448,49 +511,42 @@ const isValidFile = (file: File): boolean => {
 }
 
 .upload-dropzone :deep(.el-upload) {
-  display: block;
   width: 100%;
 }
 
 .upload-dropzone :deep(.el-upload-dragger) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 14px 12px;
-  border: 1.5px dashed #c7d2fe;
-  border-radius: 10px;
-  background: #f8faff;
+  padding: 24px 16px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
   transition:
     border-color 0.2s ease,
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
+    background-color 0.2s ease;
 }
 
-.upload-dropzone :deep(.el-upload-dragger:hover) {
+.upload-dropzone :deep(.el-upload-dragger):hover {
   border-color: #667eea;
-  background: #f1f5ff;
-  box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.08);
+  background: #f1f5f9;
 }
 
 .dropzone-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .dropzone-title {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: #475569;
 }
 
 .dropzone-link {
   color: #667eea;
-  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .format-tags {
@@ -499,138 +555,184 @@ const isValidFile = (file: File): boolean => {
 }
 
 .format-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: #e8edff;
-  color: #4f5fd0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e2e8f0;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  color: #475569;
 }
 
 .settings-section {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
   padding: 18px 20px;
   background: #f8fafc;
-  border-left: 1px solid #e8edf5;
+  border-left: 1px solid #e2e8f0;
 }
 
 .settings-header {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .settings-title {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
 }
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .setting-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .setting-block--full {
-  grid-column: 1 / -1;
+  grid-column: span 2;
 }
 
 .setting-label {
   margin: 0;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  color: #64748b;
   text-transform: uppercase;
-  color: #94a3b8;
+  letter-spacing: 0.05em;
 }
 
 .pill-segment {
   display: flex;
-  gap: 0;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 7px;
-  background: #ffffff;
-  overflow: hidden;
+  border-radius: 8px;
+  background: #e2e8f0;
+  padding: 2px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .pill-option {
   flex: 1;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border: none;
+  border-radius: 6px;
   background: transparent;
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
   transition:
     background-color 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.pill-option:not(:last-child) {
-  border-right: 1px solid #e2e8f0;
-}
-
-.pill-option:hover:not(.is-active) {
-  background: #f8fafc;
-  color: #475569;
+.pill-option:hover {
+  color: #334155;
 }
 
 .pill-option.is-active {
-  background: #f1f5ff;
-  color: #4f5fd0;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
-/* Narrow viewports: stack upload + settings as two vertical rows */
-@media (max-width: 768px) {
-  .file-upload-container {
-    max-width: 100%;
-    padding: 12px;
-  }
-
-  .upload-panel {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-  }
-
-  .settings-section {
-    border-left: none;
-    border-top: 1px solid #e8edf5;
-  }
-
-  .settings-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .setting-block--full {
-    grid-column: 1 / -1;
-  }
+/* 选中文件后的操作面板 */
+.file-action-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
 }
 
-@media (max-width: 400px) {
-  .upload-main,
-  .settings-section {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
+.selected-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
 
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
+.file-icon {
+  font-size: 18px;
+}
 
-  .setting-block--full {
-    grid-column: auto;
-  }
+.file-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clear-file-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.clear-file-btn:hover {
+  color: #ef4444;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.open-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.open-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.share-btn {
+  background: linear-gradient(135deg, #667eea 0%, #5b6fd6 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(102, 126, 234, 0.2);
+}
+
+.share-btn:hover {
+  filter: brightness(1.03);
+  box-shadow: 0 6px 14px rgba(102, 126, 234, 0.28);
+}
+
+.share-btn:disabled {
+  background: #cbd5e1;
+  color: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 </style>

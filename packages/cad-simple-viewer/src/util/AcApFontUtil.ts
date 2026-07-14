@@ -51,7 +51,12 @@ export class AcApFontUtil {
    * @returns The loaded font name if available; otherwise the mapped or default replacement.
    */
   static getReplacementFontName(fontName: string): string {
-    return FontManager.instance.findAndReplaceFont(fontName)
+    const replaced = FontManager.instance.findAndReplaceFont(fontName)
+    const isShx = fontName.toLowerCase().endsWith('.shx') || !fontName.includes('.')
+    if (isShx && !FontManager.instance.isFontLoaded(replaced) && fontName.toLowerCase() !== 'hztxt') {
+      return 'hztxt'
+    }
+    return replaced
   }
 
   /**

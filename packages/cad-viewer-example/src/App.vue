@@ -13,6 +13,7 @@
       <MlCadViewer
         locale="en"
         :local-file="store.selectedFile ?? undefined"
+        :url="store.drawingUrl ? appendTimestamp(store.drawingUrl) : undefined"
         :mode="selectedMode"
         :use-main-thread-draw="useMainThreadDraw"
         :draw-no-plot-layers="drawNoPlotLayers"
@@ -21,12 +22,47 @@
         @create="onViewerCreate"
         :base-url="BASE_URL"
       />
+
+      <!-- Share QR Code Button -->
+      <div v-if="store.drawingUrl" class="qr-share-container">
+        <el-button type="primary" :icon="Share" @click="showQrDialog = true">
+          分享二维码 (Share QR Code)
+        </el-button>
+      </div>
+
+      <!-- QR Code Dialog -->
+      <el-dialog
+        v-model="showQrDialog"
+        title="扫码在手机端查看 (Scan to View on Mobile)"
+        width="340px"
+        align-center
+        @open="generateQrCode"
+      >
+        <div class="qr-dialog-content">
+          <div v-if="qrCodeDataUrl" class="qr-image-wrapper" style="text-align: center;">
+            <img :src="qrCodeDataUrl" alt="QR Code" class="qr-image" style="border: 1px solid #ddd; border-radius: 4px; max-width: 240px;" />
+          </div>
+          <div v-else class="qr-loading">Generating...</div>
+          <p class="qr-tip">Ensure your mobile device is connected to the same LAN (Wi-Fi) to view this drawing.</p>
+          <div class="qr-link-copy" style="display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap;">
+            <el-input :model-value="shareUrl" readonly size="small" style="width: 100%;">
+              <template #append>
+                <el-button @click="copyShareLink">Copy</el-button>
+              </template>
+            </el-input>
+            <el-button type="primary" size="small" style="width: 100%; margin-left: 0; margin-top: 8px;" @click="downloadQrCode">
+              下载二维码图片
+            </el-button>
+          </div>
+        </div>
+      </el-dialog>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 // import { AcApSettingManager } from '@mlightcad/cad-simple-viewer'
+import { Share } from '@element-plus/icons-vue'
 import {
   AcApDocManager,
   AcApOpenViewMode,
@@ -35,7 +71,9 @@ import {
 } from '@mlightcad/cad-simple-viewer'
 import { MlCadViewer } from '@mlightcad/cad-viewer'
 import { log } from '@mlightcad/data-model'
-import { computed, nextTick, ref } from 'vue'
+import { ElButton, ElDialog, ElInput, ElMessage } from 'element-plus'
+import QRCode from 'qrcode'
+import { computed, nextTick, ref, onMounted } from 'vue'
 
 import { AcApQuitCmd } from './commands'
 import FileUpload from './components/FileUpload.vue'
@@ -71,10 +109,10 @@ const initialize = () => {
 // AcApSettingManager.instance.isShowStats = false
 // AcApSettingManager.instance.isShowCoordinate = false
 
-const BASE_URL = 'https://cdn.jsdelivr.net/gh/mlightcad/cad-data@main/'
+const BASE_URL = './drawings/'
 
 const showViewer = computed(
-  () => store.selectedFile != null || store.isNewDrawing
+  () => store.selectedFile != null || store.drawingUrl != null || store.isNewDrawing
 )
 
 const selectedMode = ref<AcEdOpenMode>(AcEdOpenMode.Write)
@@ -82,6 +120,183 @@ const useMainThreadDraw = ref(false)
 const drawNoPlotLayers = ref(false)
 const progressiveRendering = ref(false)
 const openViewMode = ref<AcApOpenViewMode | undefined>(undefined)
+
+const showQrDialog = ref(false)
+const qrCodeDataUrl = ref('')
+
+const shareUrl = computed(() => {
+  if (!store.drawingUrl) return ''
+  const absoluteDrawingUrl = new URL(store.drawingUrl, window.location.href).href
+  const url = new URL(window.location.href)
+  url.searchParams.set('drawing', decodeURIComponent(absoluteDrawingUrl))
+  const displayName = store.originalFileName || (store.selectedFile?.name || '')
+  if (displayName) {
+    url.searchParams.set('name', displayName)
+  }
+  return url.href
+})
+
+const generateQrCode = async () => {
+  try {
+    const rawQr = await QRCode.toDataURL(shareUrl.value, {
+      width: 200,
+      margin: 2
+    })
+    const fileName = store.originalFileName || (store.selectedFile?.name || 'drawing')
+
+    // Bake filename directly into the QR code PNG image canvas
+    qrCodeDataUrl.value = await generateCombinedQrCode(rawQr, fileName)
+
+    if (qrCodeDataUrl.value) {
+      autoSaveQrCodeToServer(qrCodeDataUrl.value, fileName)
+    }
+  } catch (err) {
+    log.error('Failed to generate QR code:', err)
+  }
+}
+
+const generateCombinedQrCode = (qrBase64: string, text: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.src = qrBase64
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 240
+      canvas.height = 280
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(qrBase64)
+        return
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 20, 10, 200, 200)
+
+      ctx.font = 'bold 12px "Microsoft YaHei", sans-serif'
+      ctx.fillStyle = '#333333'
+      ctx.textAlign = 'center'
+      
+      const textToDraw = `图纸：${text}`
+      const maxWidth = 220
+      const words = textToDraw.split('')
+      let line = ''
+      const lines = []
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n]
+        const metrics = ctx.measureText(testLine)
+        if (metrics.width > maxWidth && n > 0) {
+          lines.push(line)
+          line = words[n]
+        } else {
+          line = testLine
+        }
+      }
+      lines.push(line)
+
+      const drawLines = lines.slice(0, 2)
+      let y = 232
+      for (let i = 0; i < drawLines.length; i++) {
+        ctx.fillText(drawLines[i], 120, y)
+        y += 18
+      }
+
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => {
+      resolve(qrBase64)
+    }
+  })
+}
+
+const copyShareLink = async () => {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl.value)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = shareUrl.value
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      if (!successful) throw new Error('execCommand failed')
+    }
+    ElMessage({
+      message: 'Share link copied to clipboard!',
+      type: 'success'
+    })
+  } catch (err) {
+    ElMessage({
+      message: 'Failed to copy link',
+      type: 'error'
+    })
+  }
+}
+
+const appendTimestamp = (url: string) => {
+  try {
+    const u = new URL(url, window.location.href)
+    u.searchParams.set('t', Date.now().toString())
+    return u.href
+  } catch {
+    return url + (url.includes('?') ? '&' : '?') + 't=' + Date.now()
+  }
+}
+
+const downloadQrCode = () => {
+  if (!qrCodeDataUrl.value) return
+  const fileName = store.originalFileName || (store.selectedFile?.name || 'drawing')
+  const baseName = fileName.substring(0, fileName.lastIndexOf('.')) || fileName
+  
+  const link = document.createElement('a')
+  link.href = qrCodeDataUrl.value
+  link.download = `${baseName}-二维码.png`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  
+  ElMessage.success('二维码图片下载成功！')
+}
+
+const autoSaveQrCodeToServer = async (base64Data: string, originalFileName: string) => {
+  try {
+    const response = await fetch(base64Data)
+    const blob = await response.blob()
+    
+    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName
+    const qrFileName = `${baseName}-二维码.png`
+    
+    await fetch(`/api/save-qrcode?filename=${encodeURIComponent(qrFileName)}`, {
+      method: 'POST',
+      body: blob,
+      headers: {
+        'Content-Type': 'image/png'
+      }
+    })
+    console.log('[AutoSave] 二维码已自动保存备份至服务器！')
+  } catch (err) {
+    console.error('[AutoSave] 自动保存二维码失败:', err)
+  }
+}
+
+onMounted(() => {
+  const params = new URLSearchParams(window.location.search)
+  const urlParam = params.get('drawing')
+  const nameParam = params.get('name')
+  if (urlParam) {
+    store.drawingUrl = decodeURIComponent(urlParam)
+    store.selectedFile = null
+    store.isNewDrawing = false
+  }
+  if (nameParam) {
+    store.originalFileName = decodeURIComponent(nameParam)
+  }
+})
 
 const createNewDrawing = async () => {
   const success = await AcApDocManager.instance.newDocument({
@@ -144,8 +359,9 @@ const handleNewDrawing = (
   enableProgressiveRendering: boolean,
   viewMode: AcApOpenViewMode | undefined
 ) => {
-  store.selectedFile = null
   store.isNewDrawing = true
+  store.selectedFile = null
+  store.drawingUrl = null
   applyOpenOptions(
     mode,
     mainThreadDraw,
@@ -158,25 +374,64 @@ const handleNewDrawing = (
 
 <style scoped>
 #app-root {
+  width: 100vw;
   height: 100vh;
-  position: fixed;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #0f172a; /* Premium dark background */
 }
 
 .upload-screen {
-  height: 100vh;
-  width: 100vw;
-  display: flex;
-  justify-content: center;
-  align-items: safe center;
-  overflow-y: auto;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  margin: 0;
-  padding: 16px;
-  box-sizing: border-box;
   position: absolute;
   top: 0;
   left: 0;
+  width: 100%;
+  height: 100%;
   z-index: 1000;
   pointer-events: auto; /* Allow clicks on upload screen */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.qr-share-container {
+  position: fixed;
+  right: 40px;
+  top: 20px;
+  z-index: 1000;
+}
+
+.qr-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.qr-image-wrapper {
+  background: white;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.qr-image {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
+.qr-tip {
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  margin: 0;
+  max-width: 260px;
+}
+
+.qr-link-copy {
+  width: 100%;
+  margin-top: 4px;
 }
 </style>

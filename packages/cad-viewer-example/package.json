@@ -19,11 +19,15 @@
     "test:e2e:ui": "playwright test --ui",
     "lint": "eslint src/",
     "lint:fix": "eslint --fix --quiet src/",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:release": "pnpm build && rimraf dist/drawings && mkdir -p ../../release/public/drawings/uploads ../../release/public/drawings/fonts ../../release/public/drawings/qrcodes && rimraf ../../release/dist && cp -r dist ../../release/dist && esbuild server.js --bundle --platform=node --target=node20 --outfile=../../release/server.cjs && (cp public/drawings/*.dxf ../../release/public/drawings/ 2>/dev/null || true)"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "@types/express": "^4.17.21",
+    "@types/qrcode": "^1.5.5",
     "@vitejs/plugin-vue": "^5.1.3",
+    "esbuild": "^0.25.0",
     "vite": "^5.4.19",
     "vite-plugin-static-copy": "^3.1.1",
     "vite-svg-loader": "^5.1.0",
@@ -39,7 +43,9 @@
     "@mlightcad/cad-viewer": "workspace:*",
     "@mlightcad/data-model": "^1.10.4",
     "element-plus": "^2.12.0",
+    "express": "^4.19.2",
     "lodash-es": "4.17.21",
+    "qrcode": "^1.5.4",
     "three": "^0.172.0",
     "vue": "^3.4.21",
     "vue-i18n": "^11.4.4"

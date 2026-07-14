@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { Alias, defineConfig } from 'vite'
@@ -22,6 +22,60 @@ function useLocalDataModel(mode: string): boolean {
   }
   const flag = process.env.CAD_VIEWER_USE_LOCAL_DATA_MODEL
   return flag === '1' || flag?.toLowerCase() === 'true'
+}
+
+// 本地开发模拟前端上传与二维码自动保存中间件（纯存盘，无 ODA 转换）
+const uploadPlugin = {
+  name: 'vite-plugin-cad-upload',
+  configureServer(server: any) {
+    server.middlewares.use((req: any, res: any, next: any) => {
+      if (req.url && req.url.startsWith('/api/upload') && req.method === 'POST') {
+        const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+        const filename = urlObj.searchParams.get('filename') || 'uploaded.dxf'
+        
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          const buffer = Buffer.concat(chunks)
+          const uploadDir = resolve(__dirname, './public/drawings/uploads')
+          if (!existsSync(uploadDir)) {
+            mkdirSync(uploadDir, { recursive: true })
+          }
+          const filePath = resolve(uploadDir, filename)
+          writeFileSync(filePath, buffer)
+          
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          })
+          res.end(JSON.stringify({ url: `./drawings/uploads/${filename}`, originalName: filename }))
+        })
+        return
+      }
+      if (req.url && req.url.startsWith('/api/save-qrcode') && req.method === 'POST') {
+        const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+        const filename = urlObj.searchParams.get('filename') || 'qrcode.png'
+        
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          const buffer = Buffer.concat(chunks)
+          const qrDir = resolve(__dirname, './public/drawings/qrcodes')
+          if (!existsSync(qrDir)) {
+            mkdirSync(qrDir, { recursive: true })
+          }
+          writeFileSync(resolve(qrDir, filename), buffer)
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          })
+          res.end(JSON.stringify({ success: true }))
+        })
+        return
+      }
+      next()
+    })
+  }
 }
 
 export default defineConfig(({ command, mode }) => {
@@ -73,7 +127,8 @@ export default defineConfig(({ command, mode }) => {
           dest: 'assets'
         }
       ]
-    })
+    }),
+    uploadPlugin
   ]
 
   // Add conditional plugins
@@ -101,7 +156,6 @@ export default defineConfig(({ command, mode }) => {
       modulePreload: false,
       minify: true,
       rollupOptions: {
-        // Main entry point for the app
         input: {
           main: resolve(__dirname, 'index.html')
         },
