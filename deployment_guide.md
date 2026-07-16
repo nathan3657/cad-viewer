@@ -75,13 +75,23 @@ pnpm --filter @mlightcad/cad-viewer-example build:release
 将整个 `release/` 文件夹整体拷贝到内网服务器的目标路径下。
 
 ### 步骤三：一键启动服务器 (零依赖安装)
-无需进行任何 `npm install`。直接使用 node 运行主文件即可：
+无需进行任何 `npm install`。直接使用 node 运行主文件。
+
+> [!IMPORTANT]
+> **工作目录（Cwd）约束限制**：
+> 后端服务使用 `process.cwd()` 定位静态资源目录 `dist` 和数据持久化盘 `public`。因此，在启动服务前，**终端的当前工作路径必须先切换到 `server.cjs` 所在的同级部署目录下**！
+> 如果在其他目录下直接以绝对/相对路径运行（如在根目录直接跑 `node release/server.cjs`），会导致 Express 找不到 `./dist`，导致网页访问全部报 **404 Not Found**。
+
 *   **有全局 node 环境时**：
     ```bash
+    # 必须先 cd 进入部署文件夹中
+    cd /app/cad-viewer
     node server.cjs
     ```
-*   **使用免安装绿色 node 时**（以解压到上级目录为例）：
-    ```bash
+*   **使用免安装绿色 node 时**（以解压到上级目录，在 Windows CMD 中为例）：
+    ```cmd
+    # 必须先进入部署目录
+    cd F:\cad-viewer\release
     ..\node-v22.2.0-win-x64\node server.cjs
     ```
 

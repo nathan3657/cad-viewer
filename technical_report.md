@@ -121,34 +121,43 @@ const downloadQrCode = () => {
 }
 ```
 
-#### D. 文件名解析、防缓存与 URL 二次防截断编码
-当用户把图纸渲染进 `MlCadViewer` 时，前端自动加上随机毫秒时间戳来打破浏览器的 Disk Cache：
-```vue
-<MlCadViewer
-  :url="safeDrawingUrl ? appendTimestamp(safeDrawingUrl) : undefined"
-/>
-```
+#### D. 相对路径传递、防缓存与 URL 二次转码防截断机制
 
-##### 1. 为什么需要 `safeDrawingUrl` 双重 URL 编码防御？
-*   **现象**：当用户上传含有 **`#`**、空格、`&` 等在 URL 中具有特殊语义的字符的图纸（如 `104 送水泵站5#~7#控制图.dwg`）时，如果直接用明文路径，浏览器会将 `#` 解释为 URL 的哈希片段（Fragment Identifier），在发送 HTTP 网络请求时自动将 `#` 之后的内容全部截断，导致服务器报 404！
-*   **二次解码陷阱**：前端从浏览器地址栏通过 `urlParams.get('drawing')` 接收参数时，浏览器会自动对其进行一次 URL 解码，将安全的 `%23` 变回了明文 `#`。如果不加干预直接传给底层，网络请求依然会被截断！
-*   **对策**：在 `App.vue` 中设计了 `safeDrawingUrl` 拦截层，先进行 `decode` 还原为最纯粹的中文明文，随后强制对文件名部分单独运行 `encodeURIComponent`，确保所有特殊的 `#` 在网络层都会被转义为 `%23`，在不改变磁盘上中文名可视性的前提下，彻底解决了 404 截断问题：
+当用户把图纸渲染进 `MlCadViewer` 时，前端自动加上随机毫秒时间戳来打破浏览器的 Disk Cache。同时，系统引入了**相对路径参数化设计**和**历史数据兼容清洗**，彻底解决了多重 URL 编解码引发的 `+`/空格歧义及 `#` 哈希截断问题。
+
+##### 1. 为什么采用“相对路径（去绝对 URL 化）”参数传递？
+*   **痛点**：旧版系统二维码的 `drawing` 参数携带了包含协议和 IP 的绝对 URL（如 `?drawing=http://.../drawings/uploads/图纸#1.dwg`）。这不仅导致二维码图案极其密集、难于扫码，而且在多重转码时（如 `URLSearchParams` 将空格 `%20` 自动编码为 `+`），导致手机端去 fetch 带 `+` 的物理文件从而引发服务器 404 报错。
+*   **重构方案**：
+    *   **简化参数**：现在的二维码和重定向链接中，`drawing` 参数中只传递图纸的相对路径（如 `drawing=uploads/文件名.dwg`）。
+    *   **相对路径精准转码**：手机端接收到相对路径后，计算属性 `safeDrawingUrl` 会对相对路径的每一段进行先 `decode` 后 `encodeURIComponent` 的精准转码，重新生成安全的相对路径 `./drawings/uploads/...`。这使得所有特殊的 `#` 号都能在网络层正确变为 `%23`，空格变为 `%20`，彻底消除了 `+` 的语义歧义。
+    *   **老二维码智能兼容**：为了让以前生成的带 `+` 号的历史绝对路径二维码不失效，老兼容层在处理绝对路径文件名时，会自动执行 `.replace(/\+/g, ' ')` 将 `+` 号清洗变回空格，从而完美命中磁盘物理文件。
 
 ```typescript
 const safeDrawingUrl = computed(() => {
   const url = store.drawingUrl
   if (!url) return url
+  
+  // 1. 如果是简化的相对路径
+  if (url.startsWith('uploads/') || url.startsWith('uploads_converted/')) {
+    const parts = url.split('/')
+    const encodedParts = parts.map(p => encodeURIComponent(decodeURIComponent(p)))
+    return './drawings/' + encodedParts.join('/')
+  }
+  
+  // 2. 兼容原有的绝对 URL，并清洗老二维码中的 + 号
   const uploadsIdx = url.indexOf('/drawings/uploads/')
   if (uploadsIdx !== -1) {
     const prefix = url.substring(0, uploadsIdx + '/drawings/uploads/'.length)
     const filename = url.substring(uploadsIdx + '/drawings/uploads/'.length)
-    return prefix + encodeURIComponent(decodeURIComponent(filename))
+    const decodedFilename = decodeURIComponent(filename).replace(/\+/g, ' ')
+    return prefix + encodeURIComponent(decodedFilename)
   }
   const convertedIdx = url.indexOf('/drawings/uploads_converted/')
   if (convertedIdx !== -1) {
     const prefix = url.substring(0, convertedIdx + '/drawings/uploads_converted/'.length)
     const filename = url.substring(convertedIdx + '/drawings/uploads_converted/'.length)
-    return prefix + encodeURIComponent(decodeURIComponent(filename))
+    const decodedFilename = decodeURIComponent(filename).replace(/\+/g, ' ')
+    return prefix + encodeURIComponent(decodedFilename)
   }
   return url
 })
@@ -165,31 +174,23 @@ const appendTimestamp = (url: string) => {
 };
 ```
 
-// 2. 字符解码与文件名解析，用于展示在二维码下方
-const getFileNameFromUrl = (url: string) => {
-  try {
-    const decoded = decodeURIComponent(url);
-    const parts = decoded.split('/');
-    return parts[parts.length - 1];
-  } catch {
-    return 'CAD图纸';
-  }
-};
-```
-
 ---
 
 ### 3.2 后端设计与打包融合白皮书 (Bundling Internals)
 
 #### A. 为什么选用 `process.cwd()` 替代 `__dirname`？
 在打包单文件 Node 程序时，源码中如果使用了 `__dirname`，打包工具会强制将其硬编码为编译时的路径（例如本地开发机的绝对路径），导致拷入服务器运行时无法正确寻找同级目录。
-我们改用 **`process.cwd()`（当前工作目录）**。当服务启动在 `release` 目录下时，`process.cwd()` 返回的就是 `F:\cad-viewer\release`，保证了静态目录静态托管的完全相对化与高移植性：
+我们改用 **`process.cwd()`（当前工作目录）**。当服务启动在 `release` 目录下时，`process.cwd()` 返回的就是该同级目录，保证了静态目录托管的完全相对化与高移植性：
 ```javascript
 // server.js 核心逻辑
 const __dirname = process.cwd(); // 绝对相对路径，随着命令执行路径动态迁移
 app.use(express.static(resolve(__dirname, './dist'))); // 托管网页成品
 app.use('/drawings', express.static(resolve(__dirname, './public/drawings'))); // 托管图纸与字体
 ```
+
+> [!WARNING]
+> **运行时工作目录（Cwd）硬性约束**：
+> 由于 `process.cwd()` 返回的是终端执行 Node 命令时的当前工作路径，因此部署时**必须在 `server.cjs` 所在的同级目录下启动 Node 进程**（例如：`cd /app/cad-viewer && node server.cjs`）。如果直接在其他无关目录下以绝对路径执行服务（如在根目录直接跑 `node release/server.cjs`），会导致 Express 无法定位 `./dist`，网页加载将报 **404 Not Found**。
 
 #### B. 为什么必须打包成 CommonJS (`server.cjs`) 格式？
 `express` 中依赖了诸如 `debug`、`send` 等多年前编写的古老 CommonJS 依赖库。这些库内部含有非静态的 CommonJS 原生 `require()`（例如根据运行环境动态执行 `require('tty')`）。
