@@ -123,30 +123,66 @@ const openViewMode = ref<AcApOpenViewMode | undefined>(undefined)
 
 const showQrDialog = ref(false)
 const qrCodeDataUrl = ref('')
+const serverIP = ref('')
 
 const safeDrawingUrl = computed(() => {
   const url = store.drawingUrl
   if (!url) return url
+  
+  // 1. 如果是简化的相对路径
+  if (url.startsWith('uploads/') || url.startsWith('uploads_converted/')) {
+    const parts = url.split('/')
+    const encodedParts = parts.map(p => encodeURIComponent(decodeURIComponent(p)))
+    return './drawings/' + encodedParts.join('/')
+  }
+  
+  // 2. 兼容原有的绝对 URL
   const uploadsIdx = url.indexOf('/drawings/uploads/')
   if (uploadsIdx !== -1) {
     const prefix = url.substring(0, uploadsIdx + '/drawings/uploads/'.length)
     const filename = url.substring(uploadsIdx + '/drawings/uploads/'.length)
-    return prefix + encodeURIComponent(decodeURIComponent(filename))
+    // 兼容历史老二维码：老二维码里由于 URL 传输，空格可能会被变成 + 号，这里把 filename 里的 + 号还原回空格
+    const decodedFilename = decodeURIComponent(filename).replace(/\+/g, ' ')
+    return prefix + encodeURIComponent(decodedFilename)
   }
   const convertedIdx = url.indexOf('/drawings/uploads_converted/')
   if (convertedIdx !== -1) {
     const prefix = url.substring(0, convertedIdx + '/drawings/uploads_converted/'.length)
     const filename = url.substring(convertedIdx + '/drawings/uploads_converted/'.length)
-    return prefix + encodeURIComponent(decodeURIComponent(filename))
+    // 同理还原空格
+    const decodedFilename = decodeURIComponent(filename).replace(/\+/g, ' ')
+    return prefix + encodeURIComponent(decodedFilename)
   }
   return url
 })
 
 const shareUrl = computed(() => {
-  if (!safeDrawingUrl.value) return ''
-  const absoluteDrawingUrl = new URL(safeDrawingUrl.value, window.location.href).href
-  const url = new URL(window.location.href)
-  url.searchParams.set('drawing', decodeURIComponent(absoluteDrawingUrl))
+  if (!store.drawingUrl) return ''
+  
+  // 1. 从 store.drawingUrl 提取相对路径
+  let relativePath = store.drawingUrl
+  const drawingsIdx = relativePath.indexOf('/drawings/')
+  if (drawingsIdx !== -1) {
+    relativePath = relativePath.substring(drawingsIdx + '/drawings/'.length)
+  } else if (relativePath.startsWith('./drawings/')) {
+    relativePath = relativePath.substring('./drawings/'.length)
+  }
+  
+  // 确保是解码后的明文相对路径
+  const decodedRelativePath = decodeURIComponent(relativePath)
+  
+  // 2. 确定主机名 (Host)
+  const host = (serverIP.value && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+    ? `${serverIP.value}:${window.location.port || '8080'}`
+    : window.location.host
+    
+  // 3. 拼接分享绝对地址
+  const baseUrl = `${window.location.protocol}//${host}${window.location.pathname}`
+  
+  // 4. 构建分享 URL
+  const url = new URL(baseUrl)
+  url.searchParams.set('drawing', decodedRelativePath)
+  
   const displayName = store.originalFileName || (store.selectedFile?.name || '')
   if (displayName) {
     url.searchParams.set('name', displayName)
@@ -302,7 +338,17 @@ const autoSaveQrCodeToServer = async (base64Data: string, originalFileName: stri
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/server-info')
+    if (res.ok) {
+      const data = await res.json()
+      serverIP.value = data.localIP
+    }
+  } catch (e) {
+    console.warn('Failed to fetch server info:', e)
+  }
+
   const params = new URLSearchParams(window.location.search)
   const urlParam = params.get('drawing')
   const nameParam = params.get('name')
@@ -361,6 +407,7 @@ const handleFileSelect = (
 ) => {
   store.isNewDrawing = false
   store.selectedFile = file
+  store.drawingUrl = null
   applyOpenOptions(
     mode,
     mainThreadDraw,

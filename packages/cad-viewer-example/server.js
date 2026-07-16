@@ -7,6 +7,13 @@ const __dirname = process.cwd()
 const app = express()
 const PORT = 8080 // Production PORT
 
+// 格式化当前时间为 [YYYY-MM-DD HH:mm:ss] 作为控制台日志的前缀
+const getLogTime = () => {
+  const now = new Date()
+  const pad = (n) => n.toString().padStart(2, '0')
+  return `[${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}]`
+}
+
 // HTTP 请求访问日志过滤器（精简版，专注监控页面扫码、API 调用和图纸资源的访问）
 app.use((req, res, next) => {
   const startTime = Date.now()
@@ -26,7 +33,7 @@ app.use((req, res, next) => {
                               decodedUrl.includes('/drawings/qrcodes')
                               
     if (isCriticalRequest) {
-      console.log(`${color} [HTTP] ${req.method} ${decodedUrl} - Status: ${status} - Client IP: ${ip} - ${duration}ms`)
+      console.log(`${getLogTime()} ${color} [HTTP] ${req.method} ${decodedUrl} - Status: ${status} - Client IP: ${ip} - ${duration}ms`)
     }
   })
   next()
@@ -40,7 +47,7 @@ app.use('/drawings', express.static(resolve(__dirname, './public/drawings')))
 // 2. Binary stream file upload endpoint (pure storage, no ODA converter, keeping original name)
 app.post('/api/upload', (req, res) => {
   const originalName = req.query.filename || `upload-${Date.now()}.dxf`
-  console.log(`📥 [Server] Received upload request: ${originalName}`)
+  console.log(`${getLogTime()} 📥 [Server] Received upload request: ${originalName}`)
   
   const chunks = []
   
@@ -62,7 +69,7 @@ app.post('/api/upload', (req, res) => {
       sizeStr = `${(stats.size / 1024 / 1024).toFixed(2)} MB`
     } catch (e) {}
     
-    console.log(`🟢 [Server] Upload saved successfully: ${originalName} (${sizeStr})`)
+    console.log(`${getLogTime()} 🟢 [Server] Upload saved successfully: ${originalName} (${sizeStr})`)
     
     const finalUrl = `./drawings/uploads/${encodeURIComponent(originalName)}`
     res.json({ url: finalUrl, originalName: originalName })
@@ -84,10 +91,19 @@ app.post('/api/save-qrcode', (req, res) => {
     }
     
     writeFileSync(resolve(qrDir, filename), buffer)
-    console.log(`🟢 [Server] QR Code backup saved: ${filename}`)
+    console.log(`${getLogTime()} 🟢 [Server] QR Code backup saved: ${filename}`)
     res.json({ success: true })
   })
 })
+
+// 4. Get server LAN IP and Port information
+app.get('/api/server-info', (req, res) => {
+  res.json({
+    localIP: localIP,
+    port: PORT
+  })
+})
+
 
 // Utility to get local network IP for mobile device redirection
 const getLocalIP = () => {
@@ -106,8 +122,8 @@ const localIP = getLocalIP()
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('\n=============================================')
-  console.log(`🚀 [Server] CAD Viewer Node Backend Started!`)
-  console.log(`🌐 Local URL : http://localhost:${PORT}`)
-  console.log(`📱 LAN URL   : http://${localIP}:${PORT}`)
+  console.log(`${getLogTime()} 🚀 [Server] CAD Viewer Node Backend Started!`)
+  console.log(`${getLogTime()} 🌐 Local URL : http://localhost:${PORT}`)
+  console.log(`${getLogTime()} 📱 LAN URL   : http://${localIP}:${PORT}`)
   console.log('=============================================\n')
 })

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import { networkInterfaces } from 'os'
 import { Alias, defineConfig } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 import svgLoader from 'vite-svg-loader'
@@ -71,6 +72,24 @@ const uploadPlugin = {
           })
           res.end(JSON.stringify({ success: true }))
         })
+        return
+      }
+      if (req.url && req.url.startsWith('/api/server-info') && req.method === 'GET') {
+        const nets = networkInterfaces()
+        let localIP = 'localhost'
+        for (const name of Object.keys(nets)) {
+          for (const net of nets[name]) {
+            if (net.family === 'IPv4' && !net.internal) {
+              localIP = net.address
+              break
+            }
+          }
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify({ localIP, port: server.config.server.port || 5173 }))
         return
       }
       next()

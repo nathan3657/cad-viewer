@@ -369,12 +369,22 @@ const isValidFile = (file: File): boolean => {
 
 const loadDemoDrawing = (url: string, originalName?: string) => {
   const currentUrl = new URL(window.location.href)
-  const absoluteUrl = new URL(url, window.location.href).href
-  currentUrl.searchParams.set('drawing', absoluteUrl)
+  
+  // Extract relative path (e.g. uploads/file.dxf) from url
+  let relativePath = url
+  const drawingsIdx = url.indexOf('/drawings/')
+  if (drawingsIdx !== -1) {
+    relativePath = url.substring(drawingsIdx + '/drawings/'.length)
+  } else if (url.startsWith('./drawings/')) {
+    relativePath = url.substring('./drawings/'.length)
+  }
+  
+  const decodedPath = decodeURIComponent(relativePath)
+  currentUrl.searchParams.set('drawing', decodedPath)
   if (originalName) {
     currentUrl.searchParams.set('name', originalName)
     try {
-      localStorage.setItem(`cad_name_${absoluteUrl}`, originalName)
+      localStorage.setItem(`cad_name_${decodedPath}`, originalName)
     } catch {}
   }
   window.location.href = currentUrl.href
