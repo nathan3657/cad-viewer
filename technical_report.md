@@ -14,7 +14,7 @@
 ├── three-renderer          # 核心图形渲染管线：深度封装 Three.js 材质、着色器与 WebGL 合批绘制
 ├── cad-simple-viewer       # 核心业务逻辑层：处理 DXF/DWG 实体解析、视口变换（矩阵平移缩放）、CAD 捕捉及命令栈
 ├── cad-viewer              # 客户端 UI 外壳层：基于 Vue 3 + Element Plus 的完整的 CAD 桌面应用级交互界面
-└── cad-viewer-example      # 宿主集成应用（Vue 3 Demo）：本次改造落地的宿主站点，用于承载全栈上传与分享闭环
+└── cad-viewer-qrcode      # 宿主集成应用（Vue 3 Demo）：本次改造落地的宿主站点，用于承载全栈上传与分享闭环
 ```
 在这种架构下，底层模块是高内聚、无框架绑定的（纯 TS 实现），而 UI 壳层通过 Vue 3 进行驱动。
 
@@ -35,7 +35,7 @@
 
 ### 3.1 前端核心插桩解析
 
-#### A. 二进制流图纸上传 (`[FileUpload.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/src/components/FileUpload.vue)`)
+#### A. 二进制流图纸上传 (`[FileUpload.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/src/components/FileUpload.vue)`)
 为了不依赖大型表单库并保证极速的文件流上传，前端在用户选中 `.dxf` 或 `.dwg` 文件时，直接读取其二进制 Blob，通过裸 fetch 流的形式发送给后端，实现流式数据传输：
 ```typescript
 const handleFileChange = async (event: Event) => {
@@ -69,7 +69,7 @@ const handleFileChange = async (event: Event) => {
 };
 ```
 
-#### B. 兼容性复制兜底算法 (`[App.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/src/App.vue)`)
+#### B. 兼容性复制兜底算法 (`[App.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/src/App.vue)`)
 为了解决内网纯 HTTP 下 `navigator.clipboard` 报错的问题，我们增加了一套基于临时 `textarea` 的老旧 API 降级算法：
 ```typescript
 const copyShareLink = async () => {
@@ -201,7 +201,7 @@ app.use('/drawings', express.static(resolve(__dirname, './public/drawings'))); /
 
 ### 3.3 构建流程精细化 (Build pipeline)
 
-我们在 `[package.json](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/package.json)` 中编写了极其精细的构建打包管道：
+我们在 `[package.json](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/package.json)` 中编写了极其精细的构建打包管道：
 ```json
 "build:release": "pnpm build && rimraf dist/drawings && mkdir -p ../../release/public/drawings/uploads ../../release/public/drawings/fonts ../../release/public/drawings/qrcodes && rimraf ../../release/dist && cp -r dist ../../release/dist && esbuild server.js --bundle --platform=node --target=node20 --outfile=../../release/server.cjs && (cp public/drawings/*.dxf ../../release/public/drawings/ 2>/dev/null || true)"
 ```
@@ -255,16 +255,16 @@ app.use('/drawings', express.static(resolve(__dirname, './public/drawings'))); /
 ### 5.3 后续 Review 与代码升级指南 (Developer Guide)
 
 #### 场景一：修改了上传组件或前端 UI 界面
-1.  在开发机上修改：`[App.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/src/App.vue)` 或 `[FileUpload.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/src/components/FileUpload.vue)`。
+1.  在开发机上修改：`[App.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/src/App.vue)` 或 `[FileUpload.vue](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/src/components/FileUpload.vue)`。
 2.  在开发机项目根目录下运行一键打包：
     ```bash
-    pnpm --filter @mlightcad/cad-viewer-example build:release
+    pnpm --filter @mlightcad/cad-viewer-qrcode build:release
     ```
 3.  打包完成后，**只将** `release/dist/` 文件夹拷过去覆盖服务器上的旧 `dist/`，重启服务器或不重启网页即生效（数据盘绝对不会丢失）。
 
 #### 场景二：修改了后端接收代码或端口
-1.  在开发机上修改：`[server.js](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-example/server.js)`。
-2.  运行一键打包 `pnpm --filter @mlightcad/cad-viewer-example build:release`。
+1.  在开发机上修改：`[server.js](file:///Users/nathanchiu/project/cad-viewer/packages/cad-viewer-qrcode/server.js)`。
+2.  运行一键打包 `pnpm --filter @mlightcad/cad-viewer-qrcode build:release`。
 3.  将新生成的单个 `release/server.cjs` 拷贝并覆盖服务器上的旧文件，在 CMD 命令行中按 `Ctrl + C` 中断旧服务，重新输入 `..\node-v22.2.0-win-x64\node server.cjs` 启动即可。
 
 #### 场景三：遇到了缺失字体的图纸（显示问号）

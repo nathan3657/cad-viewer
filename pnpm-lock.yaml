@@ -416,7 +416,7 @@ importers:
         specifier: ^2.1.6
         version: 2.2.12(typescript@5.9.3)
 
-  packages/cad-viewer-example:
+  packages/cad-viewer-qrcode:
     dependencies:
       '@element-plus/icons-vue':
         specifier: ^2.3.1
@@ -497,9 +497,9 @@ importers:
       '@mlightcad/cad-simple-viewer-example':
         specifier: workspace:*
         version: link:../cad-simple-viewer-example
-      '@mlightcad/cad-viewer-example':
+      '@mlightcad/cad-viewer-qrcode':
         specifier: workspace:*
-        version: link:../cad-viewer-example
+        version: link:../cad-viewer-qrcode
       '@types/fs-extra':
         specifier: ^11.0.4
         version: 11.0.4

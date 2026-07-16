@@ -67,7 +67,7 @@
 ### 步骤一：在开发机上一键编译并收集产物
 在您当前开发电脑的项目根目录下运行：
 ```bash
-pnpm --filter @mlightcad/cad-viewer-example build:release
+pnpm --filter @mlightcad/cad-viewer-qrcode build:release
 ```
 这会自动将前端网页打包（并自动剪裁掉 dist 内的冗余 fonts 资源），并将 `server.js` 后端连同全部依赖，用 `esbuild` 自动编译成单一的 `server.cjs` 文件，一并输出到根目录下的 `release/` 文件夹中。
 
@@ -100,7 +100,7 @@ pnpm --filter @mlightcad/cad-viewer-example build:release
 ## 🔁 日常前端/后端代码更新与升级（关键防数据丢失操作）
 
 当您在开发机上修改了网页界面，或者修改了后端接收接口，需要同步到内网服务器时：
-1.  在开发机重新运行 `pnpm --filter @mlightcad/cad-viewer-example build:release`。
+1.  在开发机重新运行 `pnpm --filter @mlightcad/cad-viewer-qrcode build:release`。
     > [!IMPORTANT]
     > **字体写保护机制**：最新的编译管道已彻底移除了将开发机字体反向覆盖到 release 的命令。这意味着不论您在开发机上如何编译升级，您存放在内网服务器 `release/public/drawings/fonts/` 目录下的全套离线字库资产都将受到 100% 绝对物理隔离和写保护，永远不会被覆盖误写！
 2.  **仅将新的 `dist/` 目录和 `server.cjs` 文件**拷贝并覆盖服务器上的旧文件。

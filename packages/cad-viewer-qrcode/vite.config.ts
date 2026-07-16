@@ -100,7 +100,7 @@ const uploadPlugin = {
 export default defineConfig(({ command, mode }) => {
   if (!existsSync(resolve(__dirname, VIEWER_RUNTIME_SRC))) {
     throw new Error(
-      'viewer-runtime.iife.js not found. Build @mlightcad/cad-html-plugin before cad-viewer-example.'
+      'viewer-runtime.iife.js not found. Build @mlightcad/cad-html-plugin before cad-viewer-qrcode.'
     )
   }
   const aliases: Alias[] = []
@@ -126,7 +126,7 @@ export default defineConfig(({ command, mode }) => {
       })
     } else if (useLocalDataModel(mode) && !existsSync(LOCAL_DATA_MODEL_ENTRY)) {
       console.warn(
-        '[cad-viewer-example] Local data-model alias requested but not found at:',
+        '[cad-viewer-qrcode] Local data-model alias requested but not found at:',
         LOCAL_DATA_MODEL_ENTRY
       )
     }

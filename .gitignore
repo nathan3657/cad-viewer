@@ -46,3 +46,9 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
+
+# Build release artifacts & dynamic upload storage
+/release/
+/public/
+**/public/drawings/uploads/
+**/public/drawings/qrcodes/

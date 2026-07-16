@@ -17,16 +17,16 @@
     "analyze": "nx run-many -t analyze",
     "build": "nx run-many -t build",
     "clean": "nx run-many -t clean",
-    "dev": "nx run @mlightcad/cad-viewer-example:dev",
+    "dev": "nx run @mlightcad/cad-viewer-qrcode:dev",
     "dev:simple": "nx run @mlightcad/cad-simple-viewer-example:dev",
     "doc": "typedoc",
-    "export:html": "nx run @mlightcad/cad-html-exporter-cli:build && node packages/cad-html-exporter-cli/dist/cli.js packages/cad-viewer-example/e2e/fixtures/minimal-line.dxf -o tmp/minimal-line.html",
+    "export:html": "nx run @mlightcad/cad-html-exporter-cli:build && node packages/cad-html-exporter-cli/dist/cli.js packages/cad-viewer-qrcode/e2e/fixtures/minimal-line.dxf -o tmp/minimal-line.html",
     "export:html:run": "node packages/cad-html-exporter-cli/dist/cli.js",
     "export:html:setup": "pnpm --filter @mlightcad/cad-html-exporter-cli install-browser",
     "format": "prettier --config ./.prettierrc.js --write \"packages/**/*.{ts,js,vue,json}\"",
     "lint": "nx run-many -t lint",
     "lint:fix": "nx run-many -t lint:fix",
-    "preview": "nx run @mlightcad/cad-viewer-example:preview",
+    "preview": "nx run @mlightcad/cad-viewer-qrcode:preview",
     "preview:simple": "nx run @mlightcad/cad-simple-viewer-example:preview",
     "pre-serve": "nx run @mlightcad/cad-viewer-examples:pre-serve",
     "publish:viewer": "pnpm -r publish --access public --no-git-checks",
@@ -35,7 +35,7 @@
     "sync:versions:check": "node tools/sync-versions.mjs --check",
     "serve": "nx run @mlightcad/cad-viewer-examples:serve",
     "test": "jest",
-    "test:e2e": "pnpm --filter @mlightcad/cad-viewer-example test:e2e"
+    "test:e2e": "pnpm --filter @mlightcad/cad-viewer-qrcode test:e2e"
   },
   "engines": {
     "node": ">=24",
