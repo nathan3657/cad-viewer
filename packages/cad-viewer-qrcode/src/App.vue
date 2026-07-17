@@ -132,7 +132,10 @@ const safeDrawingUrl = computed(() => {
   // 1. 如果是简化的相对路径
   if (url.startsWith('uploads/') || url.startsWith('uploads_converted/')) {
     const parts = url.split('/')
-    const encodedParts = parts.map(p => encodeURIComponent(decodeURIComponent(p)))
+    const encodedParts = parts.map(p => {
+      const decoded = decodeURIComponent(p).replace(/\+/g, ' ')
+      return encodeURIComponent(decoded)
+    })
     return './drawings/' + encodedParts.join('/')
   }
   
