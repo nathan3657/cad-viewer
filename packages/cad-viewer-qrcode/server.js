@@ -99,7 +99,7 @@ app.post('/api/save-qrcode', (req, res) => {
 // 4. Get server LAN IP and Port information
 app.get('/api/server-info', (req, res) => {
   res.json({
-    localIP: localIP,
+    localIP: getLocalIP(), // 动态实时计算最新 IP，防网络环境切换后 IP 缓存不更新
     port: PORT
   })
 })
@@ -108,22 +108,34 @@ app.get('/api/server-info', (req, res) => {
 // Utility to get local network IP for mobile device redirection
 const getLocalIP = () => {
   const nets = networkInterfaces()
+  let fallbackIP = 'localhost'
+  
   for (const name of Object.keys(nets)) {
+    // 过滤掉多网卡开发机上的各类虚拟网卡和 VPN 接口，优先返回手机能连通的物理局域网网卡 IP
+    const isVirtual = name.toLowerCase().includes('virtual') || 
+                      name.toLowerCase().includes('vbox') || 
+                      name.toLowerCase().includes('vmnet') || 
+                      name.toLowerCase().includes('docker') || 
+                      name.toLowerCase().includes('utun') ||
+                      name.toLowerCase().includes('vpn')
+                      
     for (const net of nets[name]) {
       if (net.family === 'IPv4' && !net.internal) {
-        return net.address
+        if (!isVirtual) {
+          return net.address // 优先返回物理局域网 IP
+        }
+        fallbackIP = net.address // 虚拟网卡 IP 暂作备用兜底
       }
     }
   }
-  return 'localhost'
+  return fallbackIP
 }
 
-const localIP = getLocalIP()
-
 app.listen(PORT, '0.0.0.0', () => {
+  const activeIP = getLocalIP()
   console.log('\n=============================================')
   console.log(`${getLogTime()} 🚀 [Server] CAD Viewer Node Backend Started!`)
   console.log(`${getLogTime()} 🌐 Local URL : http://localhost:${PORT}`)
-  console.log(`${getLogTime()} 📱 LAN URL   : http://${localIP}:${PORT}`)
+  console.log(`${getLogTime()} 📱 LAN URL   : http://${activeIP}:${PORT}`)
   console.log('=============================================\n')
 })
